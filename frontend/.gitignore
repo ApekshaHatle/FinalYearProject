@@ -24,3 +24,16 @@ dist-ssr
 *.sw?
 
 .env
+
+# Python
+venv/
+__pycache__/
+
+# Node
+node_modules/
+dist/
+build/
+
+# IDE
+.vscode/
+*.log

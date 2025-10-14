@@ -1,36 +1,43 @@
-from typing import List
-from pydantic_settings import BaseSettings
-from pydantic import field_validator
 import os
+from pathlib import Path
+from dotenv import load_dotenv
 
-class Settings(BaseSettings):
-    API_PREFIX: str = "/api"
-    DEBUG: bool = False
+# Get the project root directory (parent of backend folder)
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+ENV_FILE = BASE_DIR / ".env"
 
-    DATABASE_URL: str = None
+# Load .env from project root
+load_dotenv(dotenv_path=ENV_FILE)
 
-    ALLOWED_ORIGINS: str = ""
+# Database
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./code_assistant.db")
 
-    OPENAI_API_KEY: str
+# Security
+SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key")
+ALGORITHM = os.getenv("ALGORITHM", "HS256")
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
 
-    def __init__(self, **values):
-        super().__init__(**values)
-        if not self.DEBUG:
-            db_user = os.getenv("DB_USER")
-            db_password = os.getenv("DB_PASSWORD")
-            db_host = os.getenv("DB_HOST")
-            db_port = os.getenv("DB_PORT")
-            db_name = os.getenv("DB_NAME")
-            self.DATABASE_URL = f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
+# Ollama
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "codellama:7b")
 
-    @field_validator("ALLOWED_ORIGINS")
-    def parse_allowed_origins(cls, v: str) -> List[str]:
-        return v.split(",") if v else []
+# Vector DB
+CHROMA_PERSIST_DIR = os.getenv("CHROMA_PERSIST_DIR", "./vectordb")
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = True
+# Uploads
+UPLOAD_DIR = os.getenv("UPLOAD_DIR", "./uploads")
+MAX_UPLOAD_SIZE_MB = int(os.getenv("MAX_UPLOAD_SIZE_MB", "10"))
 
+# Create a settings object for compatibility with imports like "from core.config import settings"
+class Settings:
+    DATABASE_URL = DATABASE_URL
+    SECRET_KEY = SECRET_KEY
+    ALGORITHM = ALGORITHM
+    ACCESS_TOKEN_EXPIRE_MINUTES = ACCESS_TOKEN_EXPIRE_MINUTES
+    OLLAMA_BASE_URL = OLLAMA_BASE_URL
+    OLLAMA_MODEL = OLLAMA_MODEL
+    CHROMA_PERSIST_DIR = CHROMA_PERSIST_DIR
+    UPLOAD_DIR = UPLOAD_DIR
+    MAX_UPLOAD_SIZE_MB = MAX_UPLOAD_SIZE_MB
 
 settings = Settings()

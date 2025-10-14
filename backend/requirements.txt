@@ -1,7 +1,25 @@
-fastapi[all]>=0.115.12
-langchain>=0.3.25
-langchain-openai>=0.3.18
-psycopg2-binary>=2.9.10
-python-dotenv>=1.1.0
-sqlalchemy>=2.0.41
-uvicorn>=0.34.2
+# Core framework
+fastapi[all]==0.115.2
+uvicorn==0.34.0
+
+# Database and ORM
+sqlalchemy==2.0.41
+psycopg2-binary==2.9.10
+
+# Environment and security
+python-dotenv==1.1.0
+python-multipart==0.0.9
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+pydantic==2.9.2
+
+# LangChain + RAG stack
+langchain==0.3.25
+langchain-openai==0.3.18
+chromadb==0.4.18
+sentence-transformers==2.2.2
+httpx==0.25.1
+
+# Document processing
+pypdf==3.17.0
+python-docx==1.1.0
