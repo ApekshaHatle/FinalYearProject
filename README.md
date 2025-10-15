@@ -36,7 +36,7 @@ pip install -r requirements.txt
 ### 1.4 Create `.env` File
 Create `backend/.env` with this content:
 ```bash
-DATABASE_URL=sqlite:///./code_assistant.db
+DATABASE_URL=postgresql://postgres:[YOUR-PASSWORD]@db.example.supabase.com:6543/postgres
 SECRET_KEY=your-super-secret-key-change-in-production
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=30
