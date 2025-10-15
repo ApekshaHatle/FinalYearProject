@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Backgro
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List
+from uuid import UUID
 import os
 import shutil
 from backend.db.database import get_db
@@ -14,7 +15,7 @@ router = APIRouter()
 
 # Schemas
 class DocumentResponse(BaseModel):
-    id: str
+    id: UUID  # Changed from str to UUID
     title: str
     filename: str
     chunk_count: int
@@ -25,13 +26,13 @@ class DocumentResponse(BaseModel):
         from_attributes = True
 
 # Background task to process document
-async def process_document_task(document_id: str, file_path: str, db: Session):
+async def process_document_task(document_id: UUID, file_path: str, db: Session):  # Changed str to UUID
     """Background task to process uploaded document"""
     try:
-        # Add to vector store
+        # Add to vector store (convert UUID to string for rag_service)
         chunk_count = await rag_service.add_document(
             file_path=file_path,
-            document_id=document_id,
+            document_id=str(document_id),
             metadata={"filename": os.path.basename(file_path)}
         )
         
@@ -103,7 +104,14 @@ async def upload_document(
     # Process in background
     background_tasks.add_task(process_document_task, document.id, file_path, db)
     
-    return document
+    return DocumentResponse(
+        id=document.id,
+        title=document.title,
+        filename=document.filename,
+        chunk_count=document.chunk_count,
+        status=document.status,
+        uploaded_at=document.uploaded_at.isoformat()
+    )
 
 @router.get("/", response_model=List[DocumentResponse])
 def list_documents(db: Session = Depends(get_db)):
@@ -123,7 +131,7 @@ def list_documents(db: Session = Depends(get_db)):
     ]
 
 @router.get("/{document_id}", response_model=DocumentResponse)
-def get_document(document_id: str, db: Session = Depends(get_db)):
+def get_document(document_id: UUID, db: Session = Depends(get_db)):  # Changed str to UUID
     """Get document by ID"""
     doc = db.query(Document).filter(Document.id == document_id).first()
     
@@ -133,7 +141,7 @@ def get_document(document_id: str, db: Session = Depends(get_db)):
     return doc
 
 @router.delete("/{document_id}")
-async def delete_document(document_id: str, db: Session = Depends(get_db)):
+async def delete_document(document_id: UUID, db: Session = Depends(get_db)):  # Changed str to UUID
     """Delete document"""
     doc = db.query(Document).filter(Document.id == document_id).first()
     
@@ -141,7 +149,7 @@ async def delete_document(document_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Document not found")
     
     # Delete from vector store
-    await rag_service.delete_document(document_id)
+    await rag_service.delete_document(str(document_id))  # Convert UUID to string for rag_service
     
     # Delete file
     if os.path.exists(doc.file_path):
@@ -154,7 +162,7 @@ async def delete_document(document_id: str, db: Session = Depends(get_db)):
     return {"message": "Document deleted successfully"}
 
 @router.get("/{document_id}/status")
-def get_document_status(document_id: str, db: Session = Depends(get_db)):
+def get_document_status(document_id: UUID, db: Session = Depends(get_db)):  # Changed str to UUID
     """Get document processing status"""
     doc = db.query(Document).filter(Document.id == document_id).first()
     

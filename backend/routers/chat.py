@@ -4,6 +4,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List, Optional
+from uuid import UUID
 import time
 from backend.db.database import get_db
 from backend.core.models import ChatSession, Message
@@ -15,18 +16,18 @@ router = APIRouter()
 # Schemas
 class ChatRequest(BaseModel):
     query: str
-    session_id: Optional[str] = None
+    session_id: Optional[UUID] = None  # Changed from str to UUID
     use_rag: bool = True
     stream: bool = False
 
 class ChatResponse(BaseModel):
     answer: str
     sources: List[dict] = []
-    session_id: str
+    session_id: UUID  # Changed from str to UUID
     response_time_ms: int
 
 class SessionResponse(BaseModel):
-    id: str
+    id: UUID  # Changed from str to UUID
     title: str
     message_count: int
     created_at: str
@@ -136,7 +137,7 @@ def get_sessions(db: Session = Depends(get_db)):
     return result
 
 @router.get("/sessions/{session_id}/messages")
-def get_session_messages(session_id: str, db: Session = Depends(get_db)):
+def get_session_messages(session_id: UUID, db: Session = Depends(get_db)):  # Changed str to UUID
     """Get messages for a session"""
     messages = db.query(Message).filter(
         Message.session_id == session_id
@@ -154,7 +155,7 @@ def get_session_messages(session_id: str, db: Session = Depends(get_db)):
     ]
 
 @router.delete("/sessions/{session_id}")
-def delete_session(session_id: str, db: Session = Depends(get_db)):
+def delete_session(session_id: UUID, db: Session = Depends(get_db)):  # Changed str to UUID
     """Delete a chat session"""
     session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
     if not session:

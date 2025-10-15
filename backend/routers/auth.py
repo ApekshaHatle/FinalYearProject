@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
+from uuid import UUID
 from backend.db.database import get_db
 from backend.core.models import User
 from backend.utils.security import verify_password, get_password_hash, create_access_token, decode_token
@@ -18,7 +19,7 @@ class UserCreate(BaseModel):
     full_name: str = None
 
 class UserResponse(BaseModel):
-    id: str
+    id: UUID  # Changed from str to UUID
     email: str
     username: str
     full_name: str = None
