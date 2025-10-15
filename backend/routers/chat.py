@@ -86,18 +86,25 @@ async def chat_query(request: ChatRequest, db: Session = Depends(get_db)):
     ]
     
     # Generate response
-    if context_docs:
-        answer = await ollama_service.generate_with_context(
-            question=request.query,
-            context=context_docs,
-            chat_history=history
-        )
-    else:
-        answer = await ollama_service.generate(
-            prompt=request.query,
-            system_prompt="You are a helpful coding assistant.",
-            temperature=0.7
-        )
+    success = True
+    error_msg = None
+    try:
+        if context_docs:
+            answer = await ollama_service.generate_with_context(
+                question=request.query,
+                context=context_docs,
+                chat_history=history
+            )
+        else:
+            answer = await ollama_service.generate(
+                prompt=request.query,
+                system_prompt="You are a helpful coding assistant.",
+                temperature=0.7
+            )
+    except Exception as e:
+        success = False
+        error_msg = str(e)
+        answer = f"Sorry, an error occurred: {str(e)}"
     
     response_time = int((time.time() - start_time) * 1000)
     
@@ -110,6 +117,20 @@ async def chat_query(request: ChatRequest, db: Session = Depends(get_db)):
         response_time_ms=response_time
     )
     db.add(assistant_message)
+    db.commit()
+    db.refresh(assistant_message)  # Get the ID
+    
+    # ✨ NEW: Save Query Metrics ✨
+    from backend.core.models import QueryMetrics
+    metrics = QueryMetrics(
+        message_id=assistant_message.id,  # Link to the message
+        query=request.query,
+        response_time_ms=response_time,
+        num_sources=len(sources),
+        model_used=ollama_service.model,
+        success=success
+    )
+    db.add(metrics)
     db.commit()
     
     return ChatResponse(

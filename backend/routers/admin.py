@@ -25,6 +25,12 @@ def get_stats(db: Session = Depends(get_db)):
     total_sessions = db.query(func.count(ChatSession.id)).scalar()
     total_messages = db.query(func.count(Message.id)).scalar()
     
+    # Query Metrics stats
+    from backend.core.models import QueryMetrics
+    total_queries = db.query(func.count(QueryMetrics.id)).scalar()
+    avg_response_time = db.query(func.avg(QueryMetrics.response_time_ms)).scalar() or 0
+    success_rate = db.query(func.count(QueryMetrics.id)).filter(QueryMetrics.success == True).scalar()
+    
     # RAG stats
     rag_stats = {}
     if rag_service.is_initialized:
@@ -44,6 +50,11 @@ def get_stats(db: Session = Depends(get_db)):
             "total_sessions": total_sessions,
             "total_messages": total_messages,
             "avg_messages_per_session": round(total_messages / total_sessions, 2) if total_sessions > 0 else 0
+        },
+        "queries": {
+            "total": total_queries,
+            "avg_response_time_ms": round(avg_response_time, 2),
+            "success_rate": round((success_rate / total_queries * 100), 2) if total_queries > 0 else 0
         },
         "rag": rag_stats,
         "services": {
@@ -81,3 +92,44 @@ def get_recent_activity(db: Session = Depends(get_db)):
             for session in recent_sessions
         ]
     }
+
+@router.get("/query-metrics")
+def get_query_metrics(limit: int = 50, db: Session = Depends(get_db)):
+    """Get recent query metrics for analysis"""
+    from backend.core.models import QueryMetrics
+    
+    metrics = db.query(QueryMetrics).order_by(
+        QueryMetrics.created_at.desc()
+    ).limit(limit).all()
+    
+    return [
+        {
+            "id": m.id,
+            "query": m.query,
+            "response_time_ms": m.response_time_ms,
+            "num_sources": m.num_sources,
+            "model_used": m.model_used,
+            "success": m.success,
+            "created_at": m.created_at.isoformat()
+        }
+        for m in metrics
+    ]
+
+@router.get("/slow-queries")
+def get_slow_queries(threshold_ms: int = 3000, db: Session = Depends(get_db)):
+    """Get queries that took longer than threshold"""
+    from backend.core.models import QueryMetrics
+    
+    slow_queries = db.query(QueryMetrics).filter(
+        QueryMetrics.response_time_ms > threshold_ms
+    ).order_by(QueryMetrics.response_time_ms.desc()).limit(20).all()
+    
+    return [
+        {
+            "query": q.query,
+            "response_time_ms": q.response_time_ms,
+            "num_sources": q.num_sources,
+            "created_at": q.created_at.isoformat()
+        }
+        for q in slow_queries
+    ]

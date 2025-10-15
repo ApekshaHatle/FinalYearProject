@@ -151,7 +151,7 @@ class RAGService:
             print(f"❌ Failed to delete: {e}")
             return False
     
-    async def get_statistics(self) -> Dict:
+    def get_statistics(self) -> Dict:
         """Get vector store stats"""
         if not self.is_initialized:
             return {"error": "Not initialized"}

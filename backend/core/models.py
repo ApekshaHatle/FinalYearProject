@@ -80,14 +80,19 @@ class Message(Base):
     
     # Relationships
     session = relationship("ChatSession", back_populates="messages")
+    metrics = relationship("QueryMetrics", back_populates="message", cascade="all, delete-orphan", uselist=False)
 
 class QueryMetrics(Base):
     __tablename__ = "query_metrics"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    message_id = Column(UUID(as_uuid=True), ForeignKey("messages.id", ondelete="CASCADE"), nullable=True)  # Link to message
     query = Column(Text, nullable=False)
     response_time_ms = Column(Integer)
     num_sources = Column(Integer, default=0)
     model_used = Column(String(100))
     success = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Relationships
+    message = relationship("Message", back_populates="metrics")
