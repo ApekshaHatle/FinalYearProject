@@ -9,6 +9,7 @@ function ChatPage() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [sessionId, setSessionId] = useState(null)
+  const [loadingHistory, setLoadingHistory] = useState(false)
   const messagesEndRef = useRef(null)
 
   const scrollToBottom = () => {
@@ -18,6 +19,85 @@ function ChatPage() {
   useEffect(() => {
     scrollToBottom()
   }, [messages])
+
+  
+useEffect(() => {
+  const loadChatHistory = async () => {
+    if (!sessionId) return 
+    
+    setLoadingHistory(true)
+    try {
+      const response = await fetch(
+        `http://localhost:8000/api/chat/sessions/${sessionId}/messages`,
+        {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          }
+        }
+      )
+
+      if (response.ok) {
+        const data = await response.json()
+        
+        // Transform backend messages to frontend format
+        const loadedMessages = data.map(msg => ({
+          role: msg.role,
+          content: msg.content,
+          sources: msg.sources || [],
+          responseTime: msg.response_time_ms
+        }))
+        
+        setMessages(loadedMessages)
+        console.log('✅ Loaded chat history:', loadedMessages.length, 'messages')
+      }
+    } catch (error) {
+      console.error('❌ Failed to load chat history:', error)
+    } finally {
+      setLoadingHistory(false)
+    }
+  }
+
+  loadChatHistory()
+}, [sessionId])
+
+
+
+useEffect(() => {
+  const restoreLastSession = async () => {
+    
+    const savedSessionId = localStorage.getItem('lastSessionId')
+    
+    if (savedSessionId) {
+      console.log('🔄 Restoring last session:', savedSessionId)
+      setSessionId(savedSessionId)
+    } else {
+      
+      try {
+        const response = await fetch('http://localhost:8000/api/chat/sessions', {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          }
+        })
+        
+        if (response.ok) {
+          const sessions = await response.json()
+          if (sessions.length > 0) {
+            
+            const mostRecentSession = sessions[0]
+            console.log('🔄 Loading most recent session:', mostRecentSession.id)
+            setSessionId(mostRecentSession.id)
+            localStorage.setItem('lastSessionId', mostRecentSession.id)
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load recent sessions:', error)
+      }
+    }
+  }
+
+  restoreLastSession()
+}, [])
+
 
   const sendMessage = async () => {
     if (!input.trim()) return
@@ -45,6 +125,7 @@ function ChatPage() {
       
       if (!sessionId) {
         setSessionId(data.session_id)
+        localStorage.setItem('lastSessionId', data.session_id)
       }
 
       const assistantMessage = {
@@ -73,21 +154,40 @@ function ChatPage() {
     }
   }
 
+  
+const startNewChat = () => {
+  setMessages([])
+  setSessionId(null)
+  localStorage.removeItem('lastSessionId')
+  console.log('🆕 Started new chat')
+}
   return (
     <div className="chat-page">
       <div className="chat-header">
         <h2>Code Assistant Chat</h2>
         <p>Ask questions about your codebase</p>
+        <button onClick={startNewChat} className="new-chat-button">
+          + New Chat
+        </button>
       </div>
 
       <div className="messages-container">
-        {messages.length === 0 && (
+        {loadingHistory ? (
+          <div className="empty-state">
+            <div className="typing-indicator">
+              <span></span>
+              <span></span>
+              <span></span>
+            </div>
+            <p>Loading chat history...</p>
+          </div>
+        ) : messages.length === 0 ? (
           <div className="empty-state">
             <Code size={64} />
             <h3>Start a conversation</h3>
             <p>Ask me anything about your company's code or documentation</p>
           </div>
-        )}
+        ) : null}
 
         {messages.map((msg, idx) => (
           <div key={idx} className={`message ${msg.role}`}>
