@@ -9,6 +9,7 @@ import shutil
 from backend.db.database import get_db
 from backend.core.models import Document
 from backend.services.rag_service import rag_service
+from backend.services.ocr_service import ocr_service
 from backend.core.config import UPLOAD_DIR, MAX_UPLOAD_SIZE_MB
 
 router = APIRouter()
@@ -26,15 +27,43 @@ class DocumentResponse(BaseModel):
         from_attributes = True
 
 # Background task to process document
-async def process_document_task(document_id: UUID, file_path: str, db: Session):  # Changed str to UUID
+async def process_document_task(document_id: UUID, file_path: str, db: Session):
     """Background task to process uploaded document"""
     try:
-        # Add to vector store (convert UUID to string for rag_service)
-        chunk_count = await rag_service.add_document(
-            file_path=file_path,
-            document_id=str(document_id),
-            metadata={"filename": os.path.basename(file_path)}
-        )
+        file_ext = os.path.splitext(file_path)[1].lower()
+        
+        # Check if it's an image file
+        image_extensions = ['.png', '.jpg', '.jpeg', '.bmp', '.tiff']
+        
+        if file_ext in image_extensions:
+            # Extract text from image using OCR
+            print(f"🖼️ Processing image with OCR: {file_path}")
+            extracted_text = ocr_service.extract_text_from_image(file_path)
+            
+            # Save extracted text to a temporary txt file
+            txt_file_path = file_path + ".txt"
+            with open(txt_file_path, 'w', encoding='utf-8') as f:
+                f.write(extracted_text)
+            
+            # Add the text file to vector store
+            chunk_count = await rag_service.add_document(
+                file_path=txt_file_path,
+                document_id=str(document_id),
+                metadata={
+                    "filename": os.path.basename(file_path),
+                    "type": "image_ocr",
+                    "original_image": file_path
+                }
+            )
+            
+            print(f"✅ Extracted {len(extracted_text)} characters from image")
+        else:
+            # Regular document processing (PDF, TXT, etc.)
+            chunk_count = await rag_service.add_document(
+                file_path=file_path,
+                document_id=str(document_id),
+                metadata={"filename": os.path.basename(file_path)}
+            )
         
         # Update document status
         doc = db.query(Document).filter(Document.id == document_id).first()
@@ -61,7 +90,7 @@ async def upload_document(
     """Upload and process document"""
     
     # Validate file type
-    allowed_extensions = ['.pdf', '.txt', '.md', '.docx']
+    allowed_extensions = ['.pdf', '.txt', '.md', '.docx', '.png', '.jpg', '.jpeg', '.bmp', '.tiff']
     file_ext = os.path.splitext(file.filename)[1].lower()
     
     if file_ext not in allowed_extensions:

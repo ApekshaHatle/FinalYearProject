@@ -96,12 +96,12 @@ function DocumentsPage() {
         <div className="upload-card">
           <Upload size={48} />
           <h3>Upload Document</h3>
-          <p>Supported: PDF, TXT, MD, DOCX</p>
+          <p>Supported: PDF, TXT, MD, DOCX, PNG, JPG, JPEG</p>
           
           <input
             type="file"
             onChange={handleFileSelect}
-            accept=".pdf,.txt,.md,.docx"
+            accept=".pdf,.txt,.md,.docx,.png,.jpg,.jpeg,.bmp,.tiff"
             id="file-input"
             style={{ display: 'none' }}
           />

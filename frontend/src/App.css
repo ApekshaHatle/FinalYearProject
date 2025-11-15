@@ -704,3 +704,105 @@ body {
   font-size: 18px;
   color: #94a3b8;
 }
+
+/* Chat Sessions List in Sidebar */
+.chat-sessions-list {
+  margin-left: 12px;
+  margin-top: 8px;
+  margin-bottom: 12px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.chat-session-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  margin-bottom: 4px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 13px;
+  color: #94a3b8;
+}
+
+.chat-session-item:hover {
+  background: #334155;
+}
+
+.chat-session-item.active {
+  background: #3b82f6;
+  color: white;
+}
+
+.session-title {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.session-actions {
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.chat-session-item:hover .session-actions {
+  opacity: 1;
+}
+
+.action-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  transition: all 0.2s;
+}
+
+.action-btn:hover {
+  background: #475569;
+  color: white;
+}
+
+.action-btn.delete:hover {
+  color: #ef4444;
+}
+
+.edit-session {
+  display: flex;
+  gap: 4px;
+  width: 100%;
+}
+
+.edit-session input {
+  flex: 1;
+  padding: 4px 8px;
+  background: #0f172a;
+  border: 1px solid #3b82f6;
+  border-radius: 4px;
+  color: #e2e8f0;
+  font-size: 13px;
+}
+
+.edit-session button {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.edit-session button:hover {
+  background: #334155;
+  color: white;
+}

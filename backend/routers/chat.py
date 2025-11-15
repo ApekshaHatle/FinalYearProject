@@ -31,6 +31,10 @@ class SessionResponse(BaseModel):
     title: str
     message_count: int
     created_at: str
+    
+class UpdateSessionRequest(BaseModel):
+    title: str
+    
 
 @router.post("/query", response_model=ChatResponse)
 async def chat_query(request: ChatRequest, db: Session = Depends(get_db)):
@@ -174,6 +178,18 @@ def get_session_messages(session_id: UUID, db: Session = Depends(get_db)):  # Ch
         }
         for msg in messages
     ]
+@router.put("/sessions/{session_id}")
+def update_session(session_id: UUID, request: UpdateSessionRequest, db: Session = Depends(get_db)):
+    """Update a chat session (rename)"""
+    session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    session.title = request.title
+    db.commit()
+    
+    return {"message": "Session updated", "title": request.title}
+
 
 @router.delete("/sessions/{session_id}")
 def delete_session(session_id: UUID, db: Session = Depends(get_db)):  # Changed str to UUID
