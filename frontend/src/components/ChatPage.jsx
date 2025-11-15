@@ -4,11 +4,11 @@ import ReactMarkdown from 'react-markdown'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 
-function ChatPage() {
+function ChatPage({ sessionId: propSessionId, onSessionChange }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
-  const [sessionId, setSessionId] = useState(null)
+  const [sessionId, setSessionId] = useState(propSessionId)
   const [loadingHistory, setLoadingHistory] = useState(false)
   const messagesEndRef = useRef(null)
 
@@ -99,6 +99,13 @@ useEffect(() => {
 }, [])
 
 
+// Update when session changes from sidebar
+useEffect(() => {
+  if (propSessionId !== sessionId) {
+    setSessionId(propSessionId)
+  }
+}, [propSessionId])
+
   const sendMessage = async () => {
     if (!input.trim()) return
 
@@ -125,6 +132,7 @@ useEffect(() => {
       
       if (!sessionId) {
         setSessionId(data.session_id)
+        onSessionChange(data.session_id)
         localStorage.setItem('lastSessionId', data.session_id)
       }
 
@@ -158,6 +166,7 @@ useEffect(() => {
 const startNewChat = () => {
   setMessages([])
   setSessionId(null)
+  onSessionChange(null)
   localStorage.removeItem('lastSessionId')
   console.log('🆕 Started new chat')
 }
