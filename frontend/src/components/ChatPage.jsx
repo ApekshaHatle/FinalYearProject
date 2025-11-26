@@ -1,16 +1,23 @@
 import { useState, useEffect, useRef } from 'react'
-import { Send, Code, FileText } from 'lucide-react'
+import { Send, Code, FileText, Check, X, RefreshCw } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 
-function ChatPage({ sessionId: propSessionId, onSessionChange }) {
+function ChatPage() {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
-  const [sessionId, setSessionId] = useState(propSessionId)
+  const [sessionId, setSessionId] = useState(null)
   const [loadingHistory, setLoadingHistory] = useState(false)
+
+  // Editing states
+  const [editingIndex, setEditingIndex] = useState(null)
+  const [editingText, setEditingText] = useState("")
+  const [isRegenerating, setIsRegenerating] = useState(false)
+
   const messagesEndRef = useRef(null)
+  const previousSessionRef = useRef(null)
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -20,92 +27,70 @@ function ChatPage({ sessionId: propSessionId, onSessionChange }) {
     scrollToBottom()
   }, [messages])
 
-  
-useEffect(() => {
-  const loadChatHistory = async () => {
-    if (!sessionId) return 
-    
-    setLoadingHistory(true)
-    try {
-      const response = await fetch(
-        `http://localhost:8000/api/chat/sessions/${sessionId}/messages`,
-        {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          }
-        }
-      )
-
-      if (response.ok) {
-        const data = await response.json()
-        
-        // Transform backend messages to frontend format
-        const loadedMessages = data.map(msg => ({
-          role: msg.role,
-          content: msg.content,
-          sources: msg.sources || [],
-          responseTime: msg.response_time_ms
-        }))
-        
-        setMessages(loadedMessages)
-        console.log('✅ Loaded chat history:', loadedMessages.length, 'messages')
-      }
-    } catch (error) {
-      console.error('❌ Failed to load chat history:', error)
-    } finally {
-      setLoadingHistory(false)
-    }
-  }
-
-  loadChatHistory()
-}, [sessionId])
-
-
-
-useEffect(() => {
-  const restoreLastSession = async () => {
-    
-    const savedSessionId = localStorage.getItem('lastSessionId')
-    
-    if (savedSessionId) {
-      console.log('🔄 Restoring last session:', savedSessionId)
-      setSessionId(savedSessionId)
-    } else {
+  // Monitor sessionId changes from localStorage (when sidebar switches chats)
+  useEffect(() => {
+    const checkSessionChange = () => {
+      const savedSessionId = localStorage.getItem('lastSessionId')
       
+      // If session changed from outside (sidebar click)
+      if (savedSessionId !== previousSessionRef.current) {
+        previousSessionRef.current = savedSessionId
+        setSessionId(savedSessionId)
+        setMessages([])
+        setEditingIndex(null)
+        setEditingText("")
+      }
+    }
+
+    // Check immediately
+    checkSessionChange()
+
+    // Also check periodically for changes
+    const interval = setInterval(checkSessionChange, 500)
+
+    return () => clearInterval(interval)
+  }, [])
+
+  // LOAD CHAT HISTORY when session changes
+  useEffect(() => {
+    const loadChatHistory = async () => {
+      if (!sessionId) {
+        setMessages([])
+        return
+      }
+
+      setLoadingHistory(true)
       try {
-        const response = await fetch('http://localhost:8000/api/chat/sessions', {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
+        const response = await fetch(
+          `http://localhost:8000/api/chat/sessions/${sessionId}/messages`,
+          {
+            headers: {
+              'Authorization': `Bearer ${localStorage.getItem('token')}`
+            }
           }
-        })
-        
+        )
+
         if (response.ok) {
-          const sessions = await response.json()
-          if (sessions.length > 0) {
-            
-            const mostRecentSession = sessions[0]
-            console.log('🔄 Loading most recent session:', mostRecentSession.id)
-            setSessionId(mostRecentSession.id)
-            localStorage.setItem('lastSessionId', mostRecentSession.id)
-          }
+          const data = await response.json()
+          const loadedMessages = data.map(msg => ({
+            role: msg.role,
+            content: msg.content,
+            sources: msg.sources || [],
+            responseTime: msg.response_time_ms
+          }))
+          setMessages(loadedMessages)
         }
       } catch (error) {
-        console.error('Failed to load recent sessions:', error)
+        console.error('❌ Failed to load chat history:', error)
+      } finally {
+        setLoadingHistory(false)
       }
     }
-  }
 
-  restoreLastSession()
-}, [])
+    loadChatHistory()
+  }, [sessionId])
 
-
-// Update when session changes from sidebar
-useEffect(() => {
-  if (propSessionId !== sessionId) {
-    setSessionId(propSessionId)
-  }
-}, [propSessionId])
-
+  // SEND NEW MESSAGE
   const sendMessage = async () => {
     if (!input.trim()) return
 
@@ -130,10 +115,14 @@ useEffect(() => {
 
       const data = await response.json()
       
+      // If this is a new session, save it
       if (!sessionId) {
         setSessionId(data.session_id)
-        onSessionChange(data.session_id)
         localStorage.setItem('lastSessionId', data.session_id)
+        previousSessionRef.current = data.session_id
+        
+        // Trigger sidebar refresh by dispatching event
+        window.dispatchEvent(new CustomEvent('newChatSession'))
       }
 
       const assistantMessage = {
@@ -162,19 +151,83 @@ useEffect(() => {
     }
   }
 
-  
-const startNewChat = () => {
-  setMessages([])
-  setSessionId(null)
-  onSessionChange(null)
-  localStorage.removeItem('lastSessionId')
-  console.log('🆕 Started new chat')
-}
+  // EDIT MESSAGE — Re-run updated user query with NEW edited text
+  const saveEditedMessage = async () => {
+    if (!editingText.trim()) return
+
+    // Store the edited text before we clear state
+    const newQuery = editingText
+    const editIdx = editingIndex
+
+    setIsRegenerating(true)
+    
+    // Update the user message with edited text
+    const updated = [...messages]
+    updated[editIdx].content = newQuery  // Save edited message
+
+    // Remove old assistant response to prepare for new one
+    if (updated[editIdx + 1] && updated[editIdx + 1].role === 'assistant') {
+      updated.splice(editIdx + 1, 1)
+    }
+    
+    setMessages(updated)
+    setEditingIndex(null)
+    setEditingText("")
+
+    try {
+      // Re-run with the NEW EDITED query text
+      const response = await fetch('http://localhost:8000/api/chat/query', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          query: newQuery,  // Using the edited text here!
+          session_id: sessionId,
+          use_rag: true
+        })
+      })
+
+      const data = await response.json()
+
+      // Add NEW assistant response based on edited query
+      const newAssistantMessage = {
+        role: "assistant",
+        content: data.answer,
+        sources: data.sources,
+        responseTime: data.response_time_ms
+      }
+
+      setMessages(prev => [...prev, newAssistantMessage])
+    } catch (error) {
+      console.error('Error regenerating response:', error)
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: 'Sorry, there was an error regenerating the response. Please try again.'
+      }])
+    } finally {
+      setIsRegenerating(false)
+    }
+  }
+
+  const startNewChat = () => {
+    setMessages([])
+    setSessionId(null)
+    localStorage.removeItem('lastSessionId')
+    previousSessionRef.current = null
+    
+    // Trigger sidebar refresh
+    window.dispatchEvent(new CustomEvent('newChatSession'))
+  }
+
   return (
     <div className="chat-page">
       <div className="chat-header">
-        <h2>Code Assistant Chat</h2>
-        <p>Ask questions about your codebase</p>
+        <div>
+          <h2>Code Assistant Chat</h2>
+          <p>Ask questions about your codebase</p>
+        </div>
         <button onClick={startNewChat} className="new-chat-button">
           + New Chat
         </button>
@@ -184,9 +237,7 @@ const startNewChat = () => {
         {loadingHistory ? (
           <div className="empty-state">
             <div className="typing-indicator">
-              <span></span>
-              <span></span>
-              <span></span>
+              <span></span><span></span><span></span>
             </div>
             <p>Loading chat history...</p>
           </div>
@@ -198,33 +249,92 @@ const startNewChat = () => {
           </div>
         ) : null}
 
+        {/* RENDER MESSAGES */}
         {messages.map((msg, idx) => (
           <div key={idx} className={`message ${msg.role}`}>
             <div className="message-content">
-              <ReactMarkdown
-                components={{
-                  code({node, inline, className, children, ...props}) {
-                    const match = /language-(\w+)/.exec(className || '')
-                    return !inline && match ? (
-                      <SyntaxHighlighter
-                        style={vscDarkPlus}
-                        language={match[1]}
-                        PreTag="div"
-                        {...props}
-                      >
-                        {String(children).replace(/\n$/, '')}
-                      </SyntaxHighlighter>
-                    ) : (
-                      <code className={className} {...props}>
-                        {children}
-                      </code>
-                    )
-                  }
-                }}
-              >
-                {msg.content}
-              </ReactMarkdown>
 
+              {/* If user is EDITING this message */}
+              {editingIndex === idx && msg.role === "user" ? (
+                <>
+                  <textarea
+                    className="edit-box"
+                    value={editingText}
+                    onChange={(e) => setEditingText(e.target.value)}
+                    autoFocus
+                  />
+
+                  <div className="edit-buttons">
+                    <button 
+                      onClick={saveEditedMessage} 
+                      className="save-btn"
+                      disabled={isRegenerating || !editingText.trim()}
+                    >
+                      {isRegenerating ? (
+                        <>
+                          <RefreshCw size={16} className="spinning" />
+                          Regenerating...
+                        </>
+                      ) : (
+                        <>
+                          <Check size={16} />
+                          Submit
+                        </>
+                      )}
+                    </button>
+                    <button 
+                      onClick={() => { setEditingIndex(null); setEditingText("") }}
+                      className="cancel-btn"
+                      disabled={isRegenerating}
+                    >
+                      <X size={16} />
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* Normal Display */}
+                  <ReactMarkdown
+                    components={{
+                      code({node, inline, className, children, ...props}) {
+                        const match = /language-(\w+)/.exec(className || '')
+                        return !inline && match ? (
+                          <SyntaxHighlighter
+                            style={vscDarkPlus}
+                            language={match[1]}
+                            PreTag="div"
+                            {...props}
+                          >
+                            {String(children).replace(/\n$/, '')}
+                          </SyntaxHighlighter>
+                        ) : (
+                          <code className={className} {...props}>
+                            {children}
+                          </code>
+                        )
+                      }
+                    }}
+                  >
+                    {msg.content}
+                  </ReactMarkdown>
+
+                  {/* EDIT BUTTON FOR USER MESSAGES */}
+                  {msg.role === "user" && (
+                    <button
+                      className="inline-edit-btn"
+                      onClick={() => {
+                        setEditingIndex(idx)
+                        setEditingText(msg.content)
+                      }}
+                    >
+                      Edit
+                    </button>
+                  )}
+                </>
+              )}
+
+              {/* Sources */}
               {msg.sources && msg.sources.length > 0 && (
                 <div className="sources">
                   <FileText size={16} />
@@ -249,9 +359,20 @@ const startNewChat = () => {
         {loading && (
           <div className="message assistant">
             <div className="typing-indicator">
-              <span></span>
-              <span></span>
-              <span></span>
+              <span></span><span></span><span></span>
+            </div>
+          </div>
+        )}
+
+        {isRegenerating && (
+          <div className="message assistant">
+            <div className="message-content">
+              <div className="typing-indicator">
+                <span></span><span></span><span></span>
+              </div>
+              <p style={{ marginTop: '8px', fontSize: '14px', color: '#94a3b8' }}>
+                Regenerating response...
+              </p>
             </div>
           </div>
         )}
@@ -259,6 +380,7 @@ const startNewChat = () => {
         <div ref={messagesEndRef} />
       </div>
 
+      {/* INPUT AREA */}
       <div className="input-container">
         <textarea
           value={input}
