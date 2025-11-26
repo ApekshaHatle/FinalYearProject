@@ -11,6 +11,7 @@ from backend.core.models import Document
 from backend.services.rag_service import rag_service
 from backend.services.ocr_service import ocr_service
 from backend.core.config import UPLOAD_DIR, MAX_UPLOAD_SIZE_MB
+from backend.routers.auth import get_current_user
 
 router = APIRouter()
 
@@ -85,7 +86,8 @@ async def process_document_task(document_id: UUID, file_path: str, db: Session):
 async def upload_document(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
 ):
     """Upload and process document"""
     
@@ -123,7 +125,8 @@ async def upload_document(
         title=file.filename,
         filename=file.filename,
         file_path=file_path,
-        status="processing"
+        status="processing",
+        owner_id= current_user.id
     )
     
     db.add(document)
@@ -143,9 +146,14 @@ async def upload_document(
     )
 
 @router.get("/", response_model=List[DocumentResponse])
-def list_documents(db: Session = Depends(get_db)):
-    """Get all documents"""
-    documents = db.query(Document).order_by(Document.uploaded_at.desc()).all()
+def list_documents(
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)  
+):
+    """Get all documents for current user"""
+    documents = db.query(Document).filter(
+        Document.owner_id == current_user.id  
+    ).order_by(Document.uploaded_at.desc()).all()
     
     return [
         {
@@ -160,9 +168,16 @@ def list_documents(db: Session = Depends(get_db)):
     ]
 
 @router.get("/{document_id}", response_model=DocumentResponse)
-def get_document(document_id: UUID, db: Session = Depends(get_db)):  # Changed str to UUID
+def get_document(
+    document_id: UUID, 
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)  
+):
     """Get document by ID"""
-    doc = db.query(Document).filter(Document.id == document_id).first()
+    doc = db.query(Document).filter(
+        Document.id == document_id,
+        Document.owner_id == current_user.id  #verify ownership
+    ).first()
     
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -170,9 +185,16 @@ def get_document(document_id: UUID, db: Session = Depends(get_db)):  # Changed s
     return doc
 
 @router.delete("/{document_id}")
-async def delete_document(document_id: UUID, db: Session = Depends(get_db)):  # Changed str to UUID
+async def delete_document(
+    document_id: UUID, 
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)  
+):
     """Delete document"""
-    doc = db.query(Document).filter(Document.id == document_id).first()
+    doc = db.query(Document).filter(
+        Document.id == document_id,
+        Document.owner_id == current_user.id  #VERIFY OWNERSHIP
+    ).first()
     
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -191,9 +213,9 @@ async def delete_document(document_id: UUID, db: Session = Depends(get_db)):  # 
     return {"message": "Document deleted successfully"}
 
 @router.get("/{document_id}/status")
-def get_document_status(document_id: UUID, db: Session = Depends(get_db)):  # Changed str to UUID
+def get_document_status(document_id: UUID, db: Session = Depends(get_db),current_user = Depends(get_current_user)):  # Changed str to UUID
     """Get document processing status"""
-    doc = db.query(Document).filter(Document.id == document_id).first()
+    doc = db.query(Document).filter(Document.id == document_id, Document.owner_id == current_user.id).first()
     
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
