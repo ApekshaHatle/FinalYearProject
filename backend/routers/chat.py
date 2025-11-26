@@ -10,6 +10,7 @@ from backend.db.database import get_db
 from backend.core.models import ChatSession, Message
 from backend.services.ollama_service import ollama_service
 from backend.services.rag_service import rag_service
+from backend.routers.auth import get_current_user   #to save chats and sessions separately
 
 router = APIRouter()
 
@@ -37,7 +38,12 @@ class UpdateSessionRequest(BaseModel):
     
 
 @router.post("/query", response_model=ChatResponse)
-async def chat_query(request: ChatRequest, db: Session = Depends(get_db)):
+
+async def chat_query(
+    request: ChatRequest, 
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
     """Main chat endpoint with RAG"""
     start_time = time.time()
     
@@ -47,7 +53,10 @@ async def chat_query(request: ChatRequest, db: Session = Depends(get_db)):
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
     else:
-        session = ChatSession(title=request.query[:50])
+        session = ChatSession(
+            title=request.query[:50],
+            user_id=current_user.id  #current user session linked to userid
+        )
         db.add(session)
         db.commit()
         db.refresh(session)
@@ -144,11 +153,23 @@ async def chat_query(request: ChatRequest, db: Session = Depends(get_db)):
         response_time_ms=response_time
     )
 
+# @router.get("/sessions", response_model=List[SessionResponse])
+# def get_sessions(db: Session = Depends(get_db)):
+#     """Get all chat sessions"""
+#     sessions = db.query(ChatSession).order_by(ChatSession.created_at.desc()).limit(20).all()
+
+from backend.routers.auth import get_current_user
+
 @router.get("/sessions", response_model=List[SessionResponse])
-def get_sessions(db: Session = Depends(get_db)):
-    """Get all chat sessions"""
-    sessions = db.query(ChatSession).order_by(ChatSession.created_at.desc()).limit(20).all()
-    
+def get_sessions(
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)  
+):
+    """Get all chat sessions for current user"""
+    sessions = db.query(ChatSession).filter(
+        ChatSession.user_id == current_user.id  # FILTER BY USER
+    ).order_by(ChatSession.created_at.desc()).limit(20).all()
+        
     result = []
     for session in sessions:
         message_count = db.query(Message).filter(Message.session_id == session.id).count()
@@ -162,7 +183,25 @@ def get_sessions(db: Session = Depends(get_db)):
     return result
 
 @router.get("/sessions/{session_id}/messages")
-def get_session_messages(session_id: UUID, db: Session = Depends(get_db)):  # Changed str to UUID
+def get_session_messages(
+    session_id: UUID,                      #changed str to UUID
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)  #added current user
+):
+    """Get messages for a session"""
+    # Verify session belongs to user
+    session = db.query(ChatSession).filter(
+        ChatSession.id == session_id,
+        ChatSession.user_id == current_user.id
+    ).first()
+    
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    messages = db.query(Message).filter(
+        Message.session_id == session_id
+    ).order_by(Message.created_at).all()
+    
     """Get messages for a session"""
     messages = db.query(Message).filter(
         Message.session_id == session_id
@@ -179,7 +218,18 @@ def get_session_messages(session_id: UUID, db: Session = Depends(get_db)):  # Ch
         for msg in messages
     ]
 @router.put("/sessions/{session_id}")
-def update_session(session_id: UUID, request: UpdateSessionRequest, db: Session = Depends(get_db)):
+def update_session(
+    session_id: UUID, 
+    request: UpdateSessionRequest, 
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)  # ✅ ADD THIS
+):
+    """Update a chat session (rename)"""
+    session = db.query(ChatSession).filter(
+        ChatSession.id == session_id,
+        ChatSession.user_id == current_user.id  # ✅ VERIFY OWNERSHIP
+    ).first()
+    
     """Update a chat session (rename)"""
     session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
     if not session:
@@ -192,9 +242,17 @@ def update_session(session_id: UUID, request: UpdateSessionRequest, db: Session 
 
 
 @router.delete("/sessions/{session_id}")
-def delete_session(session_id: UUID, db: Session = Depends(get_db)):  # Changed str to UUID
+def delete_session(
+    session_id: UUID, 
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)  
+):
     """Delete a chat session"""
-    session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+    session = db.query(ChatSession).filter(
+        ChatSession.id == session_id,
+        ChatSession.user_id == current_user.id  # VERIFY OWNERSHIP
+    ).first()
+    
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     
