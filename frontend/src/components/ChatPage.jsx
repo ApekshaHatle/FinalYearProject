@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Send, Code, FileText, Check, X, RefreshCw } from 'lucide-react'
+import { Send, Code, FileText, Check, X, RefreshCw, Download} from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
@@ -221,6 +221,55 @@ function ChatPage() {
     window.dispatchEvent(new CustomEvent('newChatSession'))
   }
 
+  // Function to export chat as Markdown
+const exportChatAsMarkdown = () => {
+  if (messages.length === 0) {
+    alert('No messages to export!')
+    return
+  }
+
+  // Create markdown content
+  let markdown = `# Chat Export\n\n`
+  markdown += `**Exported on:** ${new Date().toLocaleString()}\n\n`
+  markdown += `**Total Messages:** ${messages.length}\n\n`
+  markdown += `---\n\n`
+
+  // Add each message
+  messages.forEach((msg, index) => {
+    const role = msg.role === 'user' ? '👤 User' : '🤖 Assistant'
+    markdown += `## ${role}\n\n`
+    markdown += `${msg.content}\n\n`
+    
+    // Add sources if available
+    if (msg.sources && msg.sources.length > 0) {
+      markdown += `**Sources:**\n`
+      msg.sources.forEach(source => {
+        markdown += `- ${source.source}\n`
+      })
+      markdown += `\n`
+    }
+    
+    // Add response time if available
+    if (msg.responseTime) {
+      markdown += `*Response time: ${msg.responseTime}ms*\n\n`
+    }
+    
+    markdown += `---\n\n`
+  })
+
+  // Create blob and download
+  const blob = new Blob([markdown], { type: 'text/markdown' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `chat-export-${new Date().toISOString().split('T')[0]}.md`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+  
+  console.log('✅ Chat exported as Markdown')
+}
   return (
     <div className="chat-page">
       <div className="chat-header">
@@ -228,9 +277,19 @@ function ChatPage() {
           <h2>Code Assistant Chat</h2>
           <p>Ask questions about your codebase</p>
         </div>
-        <button onClick={startNewChat} className="new-chat-button">
-          + New Chat
-        </button>
+        <div className="chat-header-buttons">
+          <button 
+            onClick={exportChatAsMarkdown} 
+            className="export-button" 
+            disabled={messages.length === 0}
+          >
+            <Download size={16} />
+            Export
+          </button>
+          <button onClick={startNewChat} className="new-chat-button">
+            + New Chat
+          </button>
+        </div>
       </div>
 
       <div className="messages-container">
