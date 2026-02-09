@@ -101,13 +101,13 @@ useEffect(() => {
       </div>
 
       <nav className="sidebar-nav">
-        <Link to="/" className="nav-item">
+        <Link to="/chat" className="nav-item">
           <MessageSquare size={20} />
           <span>Chat</span>
         </Link>
 
         {/* Chat Sessions List - Only show on Chat page */}
-        {location.pathname === '/' && chatSessions.length > 0 && (
+        {location.pathname === '/chat' && chatSessions.length > 0 && (
           <div className="chat-sessions-list">
             {chatSessions.map((session) => (
               <div

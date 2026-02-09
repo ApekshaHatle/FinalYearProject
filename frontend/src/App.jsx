@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import ChatPage from './components/ChatPage'
 import DocumentsPage from './components/DocumentsPage'
 import AdminPage from './components/AdminPage'
 import LoginPage from './components/LoginPage'
+import DashboardPage from './components/DashboardPage'
 import Sidebar from './components/Sidebar'
 import './App.css'
 
@@ -77,8 +78,15 @@ function App() {
 
         <main className="main-content">
           <Routes>
+            {/* Dashboard as landing page */}
             <Route
               path="/"
+              element={<DashboardPage user={user} />}
+            />
+            
+            {/* Chat page */}
+            <Route
+              path="/chat"
               element={
                 <ChatPage
                   sessionId={currentSessionId}
@@ -86,8 +94,15 @@ function App() {
                 />
               }
             />
+            
+            {/* Documents page */}
             <Route path="/documents" element={<DocumentsPage />} />
+            
+            {/* Admin page */}
             <Route path="/admin" element={<AdminPage />} />
+            
+            {/* Redirect unknown routes to chat*/}
+            <Route path="*" element={<Navigate to="/chat" replace />} />
           </Routes>
         </main>
       </div>
