@@ -56,6 +56,10 @@ class OllamaService:
                 response.raise_for_status()
                 return response.json()["response"]
         except Exception as e:
+            print(f"❌ Ollama Error Details:")
+            print(f"   Model: {self.model}")
+            print(f"   URL: {self.base_url}")
+            print(f"   Error: {str(e)}")
             raise Exception(f"Ollama generation failed: {str(e)}")
     
     async def generate_stream(
@@ -70,7 +74,7 @@ class OllamaService:
             "prompt": prompt,
             "stream": True,
             "options": {"temperature": temperature,
-                        "num_predict": min(max_tokens, 500) }
+                        "num_predict": 500 }
         }
         
         if system_prompt:
