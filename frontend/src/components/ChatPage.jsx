@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Send, Code, FileText, Check, X, RefreshCw, Download} from 'lucide-react'
+import { Send, Code, FileText, Check, X, RefreshCw, Download, Mic, MicOff } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
@@ -16,8 +16,13 @@ function ChatPage() {
   const [editingText, setEditingText] = useState("")
   const [isRegenerating, setIsRegenerating] = useState(false)
 
+  // Voice input states
+  const [isListening, setIsListening] = useState(false)
+  const [speechSupported, setSpeechSupported] = useState(false)
+
   const messagesEndRef = useRef(null)
   const previousSessionRef = useRef(null)
+  const recognitionRef = useRef(null)
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -26,6 +31,84 @@ function ChatPage() {
   useEffect(() => {
     scrollToBottom()
   }, [messages])
+
+  // Initialize Speech Recognition
+  useEffect(() => {
+    // Check if browser supports Speech Recognition
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    
+    if (SpeechRecognition) {
+      setSpeechSupported(true)
+      const recognition = new SpeechRecognition()
+      
+      recognition.continuous = false
+      recognition.interimResults = false  // Changed to false to prevent duplicates
+      recognition.lang = 'en-US'
+
+      recognition.onstart = () => {
+        setIsListening(true)
+        console.log('🎤 Voice recognition started')
+      }
+
+      recognition.onresult = (event) => {
+        let finalTranscript = ''
+
+        // Process all results
+        for (let i = 0; i < event.results.length; i++) {
+          if (event.results[i].isFinal) {
+            finalTranscript += event.results[i][0].transcript + ' '
+          }
+        }
+
+        // Only update input with final transcript
+        if (finalTranscript.trim()) {
+          setInput(prev => prev + finalTranscript)
+        }
+      }
+
+      recognition.onerror = (event) => {
+        console.error('❌ Speech recognition error:', event.error)
+        setIsListening(false)
+        
+        if (event.error === 'not-allowed') {
+          alert('Microphone access denied. Please allow microphone access in your browser settings.')
+        }
+      }
+
+      recognition.onend = () => {
+        setIsListening(false)
+        console.log('🛑 Voice recognition stopped')
+      }
+
+      recognitionRef.current = recognition
+    } else {
+      console.warn('⚠️ Speech Recognition not supported in this browser')
+    }
+
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop()
+      }
+    }
+  }, [])
+
+  // Toggle voice input
+  const toggleVoiceInput = () => {
+    if (!speechSupported) {
+      alert('Speech recognition is not supported in your browser. Please use Chrome, Edge, or Safari.')
+      return
+    }
+
+    if (isListening) {
+      recognitionRef.current.stop()
+    } else {
+      try {
+        recognitionRef.current.start()
+      } catch (error) {
+        console.error('Error starting recognition:', error)
+      }
+    }
+  }
 
   // Monitor sessionId changes from localStorage (when sidebar switches chats)
   useEffect(() => {
@@ -93,6 +176,11 @@ function ChatPage() {
   // SEND NEW MESSAGE
   const sendMessage = async () => {
     if (!input.trim()) return
+
+    // Stop listening if active
+    if (isListening) {
+      recognitionRef.current.stop()
+    }
 
     const userMessage = { role: 'user', content: input }
     setMessages(prev => [...prev, userMessage])
@@ -222,54 +310,55 @@ function ChatPage() {
   }
 
   // Function to export chat as Markdown
-const exportChatAsMarkdown = () => {
-  if (messages.length === 0) {
-    alert('No messages to export!')
-    return
+  const exportChatAsMarkdown = () => {
+    if (messages.length === 0) {
+      alert('No messages to export!')
+      return
+    }
+
+    // Create markdown content
+    let markdown = `# Chat Export\n\n`
+    markdown += `**Exported on:** ${new Date().toLocaleString()}\n\n`
+    markdown += `**Total Messages:** ${messages.length}\n\n`
+    markdown += `---\n\n`
+
+    // Add each message
+    messages.forEach((msg, index) => {
+      const role = msg.role === 'user' ? '👤 User' : '🤖 Assistant'
+      markdown += `## ${role}\n\n`
+      markdown += `${msg.content}\n\n`
+      
+      // Add sources if available
+      if (msg.sources && msg.sources.length > 0) {
+        markdown += `**Sources:**\n`
+        msg.sources.forEach(source => {
+          markdown += `- ${source.source}\n`
+        })
+        markdown += `\n`
+      }
+      
+      // Add response time if available
+      if (msg.responseTime) {
+        markdown += `*Response time: ${msg.responseTime}ms*\n\n`
+      }
+      
+      markdown += `---\n\n`
+    })
+
+    // Create blob and download
+    const blob = new Blob([markdown], { type: 'text/markdown' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `chat-export-${new Date().toISOString().split('T')[0]}.md`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+    
+    console.log('✅ Chat exported as Markdown')
   }
 
-  // Create markdown content
-  let markdown = `# Chat Export\n\n`
-  markdown += `**Exported on:** ${new Date().toLocaleString()}\n\n`
-  markdown += `**Total Messages:** ${messages.length}\n\n`
-  markdown += `---\n\n`
-
-  // Add each message
-  messages.forEach((msg, index) => {
-    const role = msg.role === 'user' ? '👤 User' : '🤖 Assistant'
-    markdown += `## ${role}\n\n`
-    markdown += `${msg.content}\n\n`
-    
-    // Add sources if available
-    if (msg.sources && msg.sources.length > 0) {
-      markdown += `**Sources:**\n`
-      msg.sources.forEach(source => {
-        markdown += `- ${source.source}\n`
-      })
-      markdown += `\n`
-    }
-    
-    // Add response time if available
-    if (msg.responseTime) {
-      markdown += `*Response time: ${msg.responseTime}ms*\n\n`
-    }
-    
-    markdown += `---\n\n`
-  })
-
-  // Create blob and download
-  const blob = new Blob([markdown], { type: 'text/markdown' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `chat-export-${new Date().toISOString().split('T')[0]}.md`
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
-  
-  console.log('✅ Chat exported as Markdown')
-}
   return (
     <div className="chat-page">
       <div className="chat-header">
@@ -445,10 +534,24 @@ const exportChatAsMarkdown = () => {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyPress={handleKeyPress}
-          placeholder="Ask a question..."
+          placeholder={isListening ? "Listening... Speak now!" : "Ask a question or click the mic to speak..."}
           rows={3}
           disabled={loading}
+          className={isListening ? 'listening' : ''}
         />
+        
+        {/* Voice Input Button */}
+        {speechSupported && (
+          <button
+            onClick={toggleVoiceInput}
+            disabled={loading}
+            className={`voice-button ${isListening ? 'listening' : ''}`}
+            title={isListening ? 'Stop listening' : 'Start voice input'}
+          >
+            {isListening ? <MicOff size={20} /> : <Mic size={20} />}
+          </button>
+        )}
+
         <button 
           onClick={sendMessage} 
           disabled={loading || !input.trim()}
