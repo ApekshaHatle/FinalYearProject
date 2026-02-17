@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
 from backend.db.database import engine, Base
-from backend.routers import auth, chat, documents, admin
+from backend.routers import auth, chat, documents, admin, google_auth
 from backend.services.ollama_service import ollama_service
 from backend.services.rag_service import rag_service
 import os
@@ -54,6 +54,7 @@ class HealthResponse(BaseModel):
     message: str
 
 # ---------- ROUTERS ----------
+app.include_router(google_auth.router, prefix="/api/auth", tags=["Google_auth"])
 app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
 app.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
 app.include_router(documents.router, prefix="/api/documents", tags=["Documents"])

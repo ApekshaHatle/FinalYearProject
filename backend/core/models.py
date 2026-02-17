@@ -29,6 +29,7 @@ class User(Base):
     department = Column(String(100))
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    google_id = Column(String, nullable=True, unique=True)
     
     # Relationships
     documents = relationship("Document", back_populates="owner", cascade="all, delete-orphan")
