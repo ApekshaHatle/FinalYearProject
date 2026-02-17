@@ -1432,21 +1432,24 @@ body {
   cursor: not-allowed;
 }
 
+/* --- Fix: toggle-btn — orange outline only, no blue fill --- */
 .toggle-btn {
   padding: 12px;
   background: transparent;
-  border: 1px solid #E7E5E4;
+  border: 1.5px solid #E7E5E4;
   border-radius: 8px;
   color: #78716C;
   font-size: 14px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: border-color 0.2s, color 0.2s, background 0.2s;
 }
 
 .toggle-btn:hover {
-  border-color: #F97316;
-  color: #F97316;
+  background: transparent;          /* no fill */
+  border-color: #F97316;            /* orange outline */
+  color: #EA580C;                   /* orange text */
 }
+
 
 .loading,
 .error {
@@ -1858,4 +1861,77 @@ textarea.listening {
     top: 4px;
     right: 4px;
   }
+}
+
+/* --- Google sign-in section --- */
+.google-signin-container {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+
+.divider {
+  width: 100%;
+  text-align: center;
+  margin: 0 0 16px;
+  position: relative;
+}
+
+.divider::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: #E7E5E4;
+}
+
+.divider span {
+  background: #FFFFFF;
+  padding: 0 12px;
+  position: relative;
+  color: #78716C;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+}
+
+/* --- Custom Google button — fills orange on hover --- */
+.google-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 11px 16px;
+  background: #FFFFFF;
+  border: 1.5px solid #E7E5E4;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  color: #1C1917;
+  font-family: inherit;
+  transition: background 0.2s, border-color 0.2s, color 0.2s, box-shadow 0.2s;
+}
+
+.google-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #F97316 0%, #EA580C 100%);
+  border-color: #EA580C;
+  color: #FFFFFF;
+  box-shadow: 0 4px 12px rgba(249, 115, 22, 0.3);
+}
+
+.google-btn:active:not(:disabled) {
+  background: linear-gradient(135deg, #EA580C 0%, #C2410C 100%);
+  box-shadow: none;
+  transform: translateY(1px);
+}
+
+.google-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
