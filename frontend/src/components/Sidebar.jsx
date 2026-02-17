@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { MessageSquare, FileText, BarChart3, LogOut, Edit2, Trash2 } from 'lucide-react'
+import { Home, MessageSquare, FileText, BarChart3, LogOut, Edit2, Trash2 } from 'lucide-react'
 
 function Sidebar({ user, onLogout, currentSessionId, onSessionSelect }) {
   const [chatSessions, setChatSessions] = useState([])
@@ -101,7 +101,20 @@ useEffect(() => {
       </div>
 
       <nav className="sidebar-nav">
-        <Link to="/chat" className="nav-item">
+
+        {/* Home Button Added */}
+        <Link
+          to="/"
+          className={`nav-item ${location.pathname === '/' ? 'active' : ''}`}
+        >
+          <Home size={20} />
+          <span>Home</span>
+        </Link>
+
+        <Link
+          to="/chat"
+          className={`nav-item ${location.pathname === '/chat' ? 'active' : ''}`}
+        >
           <MessageSquare size={20} />
           <span>Chat</span>
         </Link>
@@ -159,11 +172,18 @@ useEffect(() => {
           </div>
         )}
 
-        <Link to="/documents" className="nav-item">
+        <Link
+          to="/documents"
+          className={`nav-item ${location.pathname === '/documents' ? 'active' : ''}`}
+        >
           <FileText size={20} />
           <span>Documents</span>
         </Link>
-        <Link to="/admin" className="nav-item">
+
+        <Link
+          to="/admin"
+          className={`nav-item ${location.pathname === '/admin' ? 'active' : ''}`}
+        >
           <BarChart3 size={20} />
           <span>Admin</span>
         </Link>
