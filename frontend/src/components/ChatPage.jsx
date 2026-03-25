@@ -165,6 +165,8 @@ function ChatPage() {
       recognitionRef.current.stop()
     }
 
+    const currentDb = selectedDb  // ← Capture at send time
+
     const userMessage = { role: 'user', content: input, dbScope: selectedDb }
     setMessages(prev => [...prev, userMessage])
     setInput('')
@@ -181,7 +183,7 @@ function ChatPage() {
           query: input,
           session_id: sessionId,
           use_rag: true,
-          db_scope: selectedDb  // ← NEW: tell backend which DB to search
+          db_scope: currentDb  // ← Use captured value
         })
       })
 
@@ -199,7 +201,7 @@ function ChatPage() {
         content: data.answer,
         sources: data.sources,
         responseTime: data.response_time_ms,
-        dbScope: selectedDb
+        dbScope: currentDb  // ← Use captured value
       }
 
       setMessages(prev => [...prev, assistantMessage])
@@ -208,7 +210,7 @@ function ChatPage() {
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: 'Sorry, there was an error. Please try again.',
-        dbScope: selectedDb
+        dbScope: currentDb  // ← Use captured value
       }])
     } finally {
       setLoading(false)

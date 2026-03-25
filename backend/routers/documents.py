@@ -322,9 +322,11 @@ def get_document_status(
     }
 
 # ── NEW: Health check endpoint ───────────────────────────────────────────────
+from typing import Optional
+
 @router.get("/health")
-async def health():
-    """Check health of both local and shared RAG services"""
+async def health(scope: Optional[str] = Query(None)):
+    """Health check for both databases (scope param ignored, kept for compatibility)"""
     return {
         "local": rag_manager.get_local_statistics(),
         "shared": await rag_manager.get_shared_statistics()
