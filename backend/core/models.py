@@ -1,5 +1,5 @@
 """SQLAlchemy models - PostgreSQL/Supabase Version"""
-from sqlalchemy import Column, String, Integer, DateTime, Text, ForeignKey, JSON, Enum, Boolean
+from sqlalchemy import Column, String, Integer, Float, DateTime, Text, ForeignKey, JSON, Enum, Boolean
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -78,6 +78,14 @@ class Message(Base):
     response_time_ms = Column(Integer)
     feedback = Column(Integer, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # ── NEW columns ───────────────────────────────────────────────────────────
+    db_scope           = Column(String(20), default="local")   # "local" | "shared"
+    feedback_record_id = Column(UUID(as_uuid=True), nullable=True)  # → feedback_records.id
+    feedback_vote      = Column(Integer, nullable=True)         # 1, -1, or NULL
+    confidence_score   = Column(Float, nullable=True)           # 0.0–1.0  (cached for history)
+    confidence_label   = Column(String(10), nullable=True)      # "high"/"medium"/"low"
+    # ─────────────────────────────────────────────────────────────────────────
     
     # Relationships
     session = relationship("ChatSession", back_populates="messages")
@@ -87,7 +95,7 @@ class QueryMetrics(Base):
     __tablename__ = "query_metrics"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    message_id = Column(UUID(as_uuid=True), ForeignKey("messages.id", ondelete="CASCADE"), nullable=True)  # Link to message
+    message_id = Column(UUID(as_uuid=True), ForeignKey("messages.id", ondelete="CASCADE"), nullable=True)
     query = Column(Text, nullable=False)
     response_time_ms = Column(Integer)
     num_sources = Column(Integer, default=0)

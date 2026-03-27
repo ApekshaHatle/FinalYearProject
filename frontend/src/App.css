@@ -802,15 +802,21 @@ body {
   justify-content: center;
   margin-top: 0.5rem;
   padding: 0.4rem 0.75rem;
-  background: rgba(249, 115, 22, 0.1);
-  border: 1px solid #FED7AA;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.4);
   border-radius: 6px;
   cursor: pointer;
-  color: #EA580C;
+  color: #ffffff;
   font-size: 0.813rem;
   font-weight: 500;
   transition: all 0.2s ease;
-  opacity: 0;
+  opacity: 1; /* FIXED */
+}
+
+.inline-edit-btn:hover {
+  background: #ffffff;
+  color: #f97316;
+  border: 1px solid #ffffff;
 }
 
 .message.user:hover .inline-edit-btn {

@@ -1,166 +1,156 @@
-"""Chat/Query endpoints"""
+"""Chat/Query endpoints — with confidence scoring + feedback learning"""
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from typing import List, Optional, Literal  # ← ADDED Literal
+from typing import List, Optional, Literal
 from uuid import UUID
 import time
 from backend.db.database import get_db
 from backend.core.models import ChatSession, Message
 from backend.services.ollama_service import ollama_service
-from backend.services.rag_manager import rag_manager  # ← CHANGED from rag_service
-# from backend.services.rag_service import rag_service  # ← REMOVE/COMMENT OUT
+from backend.services.rag_manager import rag_manager
 from backend.routers.auth import get_current_user
+from backend.services.feedback_learning import fl_service, compute_confidence, FeedbackRecord
 
 router = APIRouter()
 
-# Schemas
+# ── Schemas ───────────────────────────────────────────────────────────────────
+
 class ChatRequest(BaseModel):
     query: str
     session_id: Optional[UUID] = None
     use_rag: bool = True
     stream: bool = False
-    db_scope: Literal["local", "shared"] = "local"  # ← NEW: database selection
+    db_scope: Literal["local", "shared"] = "local"
 
 class ChatResponse(BaseModel):
     answer: str
     sources: List[dict] = []
     session_id: UUID
     response_time_ms: int
-    db_scope: str = "local"  # ← NEW: which DB was used
+    db_scope: str = "local"
+    feedback_record_id: Optional[UUID] = None
+    confidence: Optional[dict] = None
 
 class SessionResponse(BaseModel):
     id: UUID
     title: str
     message_count: int
     created_at: str
-    
+
 class UpdateSessionRequest(BaseModel):
     title: str
-    
+
+class FeedbackRequest(BaseModel):
+    record_id: UUID
+    vote: Literal[1, -1]
+
+
+# ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.post("/query", response_model=ChatResponse)
 async def chat_query(
-    request: ChatRequest, 
+    request: ChatRequest,
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """Main chat endpoint with RAG - supports local and shared databases"""
     start_time = time.time()
-    
-    # Get or create session
+
+    # ── Session ───────────────────────────────────────────────────────────────
     if request.session_id:
         session = db.query(ChatSession).filter(ChatSession.id == request.session_id).first()
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
     else:
-        session = ChatSession(
-            title=request.query[:50],
-            user_id=current_user.id
-        )
+        session = ChatSession(title=request.query[:50], user_id=current_user.id)
         db.add(session)
         db.commit()
         db.refresh(session)
-    
-    # Save user message
+
+    # Save user message — store db_scope so history shows correct badge
     user_message = Message(
         session_id=session.id,
         role="user",
-        content=request.query
+        content=request.query,
+        db_scope=request.db_scope,      # ← NEW
     )
     db.add(user_message)
     db.commit()
-    
-    # ── RAG retrieval with database selection ─────────────────────────────────
+
+    # ── RAG retrieval ─────────────────────────────────────────────────────────
     sources = []
     context_docs = []
-    
+    raw_similarity_scores = []
+
     if request.use_rag:
-        # Check if the requested scope is available
         if request.db_scope == "local" and rag_manager.local.is_initialized:
-            search_results = await rag_manager.search(
-                query=request.query,
-                k=5,
-                scope="local"  # ← Search local ChromaDB
-            )
+            search_results = await rag_manager.search(query=request.query, k=5, scope="local")
         elif request.db_scope == "shared":
-            # This will try to reach the shared server
-            search_results = await rag_manager.search(
-                query=request.query,
-                k=5,
-                scope="shared"  # ← Search shared ChromaDB via HTTP
-            )
+            search_results = await rag_manager.search(query=request.query, k=5, scope="shared")
         else:
             search_results = []
-        
+
         if search_results:
-            context_docs = [result["content"] for result in search_results]
+            context_docs = [r["content"] for r in search_results]
+            for r in search_results:
+                score = r.get("relevance_score") or r.get("similarity_score")
+                if score is not None:
+                    raw_similarity_scores.append(float(score))
             sources = [
                 {
-                    "content": result["content"][:200] + "...",
-                    "source": result.get("source", "unknown"),
-                    "document_id": result.get("metadata", {}).get("document_id", "unknown")
+                    "content": r["content"][:200] + "...",
+                    "source": r.get("source", "unknown"),
+                    "document_id": r.get("metadata", {}).get("document_id", "unknown"),
+                    "relevance_score": r.get("relevance_score"),
                 }
-                for result in search_results
+                for r in search_results
             ]
-    
-    # Get chat history
-    chat_history = db.query(Message).filter(
-        Message.session_id == session.id
-    ).order_by(Message.created_at.desc()).limit(10).all()
-    
-    history = [
-        {"role": msg.role, "content": msg.content}
-        for msg in reversed(chat_history[1:])
-    ]
-    
-    # ── Generate response with context ────────────────────────────────────────
+
+    # ── Confidence (computed before generation — it's about retrieval quality) ─
+    conf_data = compute_confidence(raw_similarity_scores, len(context_docs))
+
+    # ── Generation ────────────────────────────────────────────────────────────
     success = True
-    error_msg = None
-    
     try:
         if context_docs:
-            # Enhanced prompt indicating which database was used
-            db_label = "shared team" if request.db_scope == "shared" else "personal"
-            
             answer = await ollama_service.generate_with_context(
                 question=request.query,
                 context=context_docs,
-                chat_history=history
+                chat_history=_get_history(db, session.id),
             )
         else:
-            # No RAG results - just use Ollama directly
-            if request.db_scope == "shared":
-                system_prompt = "You are a helpful coding assistant. Note: No relevant documents were found in the shared team database."
-            else:
-                system_prompt = "You are a helpful coding assistant. Note: No relevant documents were found in your personal database."
-            
+            system_prompt = (
+                "You are a helpful coding assistant. "
+                "Note: No relevant documents were found in the "
+                + ("shared team" if request.db_scope == "shared" else "personal")
+                + " database."
+            )
             answer = await ollama_service.generate(
                 prompt=request.query,
                 system_prompt=system_prompt,
-                temperature=0.7
+                temperature=0.7,
             )
     except Exception as e:
         success = False
-        error_msg = str(e)
         answer = f"Sorry, an error occurred: {str(e)}"
-    
+
     response_time = int((time.time() - start_time) * 1000)
-    
-    # Save assistant message
+
+    # ── Save assistant message (without feedback_record_id yet) ───────────────
     assistant_message = Message(
         session_id=session.id,
         role="assistant",
         content=answer,
         sources=sources,
-        response_time_ms=response_time
+        response_time_ms=response_time,
+        db_scope=request.db_scope,          # ← NEW
     )
     db.add(assistant_message)
     db.commit()
     db.refresh(assistant_message)
-    
-    # Save Query Metrics
+
+    # ── QueryMetrics ──────────────────────────────────────────────────────────
     from backend.core.models import QueryMetrics
     metrics = QueryMetrics(
         message_id=assistant_message.id,
@@ -168,30 +158,72 @@ async def chat_query(
         response_time_ms=response_time,
         num_sources=len(sources),
         model_used=ollama_service.model,
-        success=success
+        success=success,
     )
     db.add(metrics)
     db.commit()
-    
+
+    # ── FeedbackRecord ────────────────────────────────────────────────────────
+    feedback_record = fl_service.record_response(
+        db=db,
+        query=request.query,
+        similarity_scores=raw_similarity_scores,
+        num_sources=len(context_docs),
+        message_id=assistant_message.id,
+        user_id=current_user.id,
+        db_scope=request.db_scope,
+    )
+
+    # ── Write feedback_record_id + confidence back onto the message row ────────
+    # This is what makes confidence survive a page reload — it's stored in the
+    # messages table, so get_session_messages can return it directly.
+    assistant_message.feedback_record_id = feedback_record.id
+    assistant_message.confidence_score   = feedback_record.confidence_score
+    assistant_message.confidence_label   = feedback_record.confidence_label
+    db.commit()
+
     return ChatResponse(
         answer=answer,
         sources=sources,
         session_id=session.id,
         response_time_ms=response_time,
-        db_scope=request.db_scope  # ← Return which DB was used
+        db_scope=request.db_scope,
+        feedback_record_id=feedback_record.id,
+        confidence={
+            "score": feedback_record.confidence_score,
+            "label": feedback_record.confidence_label,
+            "top_source_score": conf_data.get("top_score"),
+            "avg_source_score": conf_data.get("avg_score"),
+        },
     )
 
+
+# ── Feedback endpoint ─────────────────────────────────────────────────────────
+
+@router.post("/feedback")
+def submit_feedback(request, db, current_user):
+    record = fl_service.apply_feedback(db, request.record_id, request.vote)
+    if not record:
+        raise HTTPException(status_code=404, detail="Feedback record not found")
+    return {
+        "message": "Feedback recorded.",
+        "record_id": str(record.id),
+        "vote": request.vote,
+        "updated_confidence": record.confidence_score,
+        "keywords_updated": record.query_keywords or [],   # ← ADD THIS
+    }
+
+# ── Session endpoints ─────────────────────────────────────────────────────────
 
 @router.get("/sessions", response_model=List[SessionResponse])
 def get_sessions(
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)  
+    current_user = Depends(get_current_user)
 ):
-    """Get all chat sessions for current user"""
     sessions = db.query(ChatSession).filter(
         ChatSession.user_id == current_user.id
     ).order_by(ChatSession.created_at.desc()).limit(20).all()
-        
+
     result = []
     for session in sessions:
         message_count = db.query(Message).filter(Message.session_id == session.id).count()
@@ -201,7 +233,6 @@ def get_sessions(
             "message_count": message_count,
             "created_at": session.created_at.isoformat()
         })
-    
     return result
 
 
@@ -211,81 +242,93 @@ def get_session_messages(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """Get messages for a session"""
-    # Verify session belongs to user
     session = db.query(ChatSession).filter(
         ChatSession.id == session_id,
         ChatSession.user_id == current_user.id
     ).first()
-    
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
     messages = db.query(Message).filter(
         Message.session_id == session_id
     ).order_by(Message.created_at).all()
-    
-    return [
-        {
+
+    result = []
+    for msg in messages:
+        row = {
             "id": msg.id,
             "role": msg.role,
             "content": msg.content,
             "sources": msg.sources,
             "response_time_ms": msg.response_time_ms,
-            "created_at": msg.created_at.isoformat()
+            "created_at": msg.created_at.isoformat(),
+            # ── NEW fields that fix the reload bug ────────────────────────────
+            "db_scope": msg.db_scope or "local",
+            "feedback_record_id": msg.feedback_record_id,
+            "feedback_vote": msg.feedback_vote,
+            # Confidence is cached directly on the message row — no extra query
+            "confidence": (
+                {
+                    "score": msg.confidence_score,
+                    "label": msg.confidence_label,
+                }
+                if msg.confidence_score is not None
+                else None
+            ),
         }
-        for msg in messages
-    ]
+        result.append(row)
+
+    return result
 
 
 @router.put("/sessions/{session_id}")
 def update_session(
-    session_id: UUID, 
-    request: UpdateSessionRequest, 
+    session_id: UUID,
+    request: UpdateSessionRequest,
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """Update a chat session (rename)"""
     session = db.query(ChatSession).filter(
         ChatSession.id == session_id,
         ChatSession.user_id == current_user.id
     ).first()
-    
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    
     session.title = request.title
     db.commit()
-    
     return {"message": "Session updated", "title": request.title}
 
 
 @router.delete("/sessions/{session_id}")
 def delete_session(
-    session_id: UUID, 
+    session_id: UUID,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)  
+    current_user = Depends(get_current_user)
 ):
-    """Delete a chat session"""
     session = db.query(ChatSession).filter(
         ChatSession.id == session_id,
         ChatSession.user_id == current_user.id
     ).first()
-    
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    
     db.delete(session)
     db.commit()
-    
     return {"message": "Session deleted"}
 
 
 @router.post("/code/generate")
-async def generate_code(
-    description: str,
-    language: str = "python"
-):
-    """Generate code snippet"""
+async def generate_code(description: str, language: str = "python"):
     code = await ollama_service.generate_code(description, language)
     return {"code": code, "language": language}
+
+
+# ── Helper ────────────────────────────────────────────────────────────────────
+
+def _get_history(db: Session, session_id: UUID):
+    chat_history = db.query(Message).filter(
+        Message.session_id == session_id
+    ).order_by(Message.created_at.desc()).limit(10).all()
+    return [
+        {"role": msg.role, "content": msg.content}
+        for msg in reversed(chat_history[1:])
+    ]
