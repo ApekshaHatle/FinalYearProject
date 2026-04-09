@@ -57,6 +57,10 @@ async def chat_query(
 ):
     start_time = time.time()
 
+    # ── DEBUG: confirm what scope and URL are being used ─────────────────────
+    print(f"DEBUG scope received: '{request.db_scope}'")
+    print(f"DEBUG rag_manager shared URL: {rag_manager._http.base_url}")
+
     # ── Session ───────────────────────────────────────────────────────────────
     if request.session_id:
         session = db.query(ChatSession).filter(ChatSession.id == request.session_id).first()
@@ -68,12 +72,12 @@ async def chat_query(
         db.commit()
         db.refresh(session)
 
-    # Save user message — store db_scope so history shows correct badge
+    # Save user message
     user_message = Message(
         session_id=session.id,
         role="user",
         content=request.query,
-        db_scope=request.db_scope,      # ← NEW
+        db_scope=request.db_scope,
     )
     db.add(user_message)
     db.commit()
@@ -91,6 +95,18 @@ async def chat_query(
         else:
             search_results = []
 
+        # ── FIX 4: Filter out negative/zero relevance scores ─────────────────
+        # Negative scores from ChromaDB mean the chunk is not relevant at all.
+        # Passing them to the LLM as context causes wrong/hallucinated answers.
+        if search_results:
+            valid_results = [
+                r for r in search_results
+                if (r.get("relevance_score") is None or r.get("relevance_score", 0) > 0.0)
+            ]
+            print(f"DEBUG: {len(search_results)} results from '{request.db_scope}' scope, "
+                  f"{len(valid_results)} passed score filter (score > 0.0)")
+            search_results = valid_results
+
         if search_results:
             context_docs = [r["content"] for r in search_results]
             for r in search_results:
@@ -107,7 +123,7 @@ async def chat_query(
                 for r in search_results
             ]
 
-    # ── Confidence (computed before generation — it's about retrieval quality) ─
+    # ── Confidence ────────────────────────────────────────────────────────────
     conf_data = compute_confidence(raw_similarity_scores, len(context_docs))
 
     # ── Generation ────────────────────────────────────────────────────────────
@@ -118,14 +134,25 @@ async def chat_query(
                 question=request.query,
                 context=context_docs,
                 chat_history=_get_history(db, session.id),
+                db_scope=request.db_scope,   # ← FIX: pass scope into cache key
             )
         else:
-            system_prompt = (
-                "You are a helpful coding assistant. "
-                "Note: No relevant documents were found in the "
-                + ("shared team" if request.db_scope == "shared" else "personal")
-                + " database."
-            )
+            # ── FIX 3: Tell the LLM not to hallucinate when shared returns nothing
+            if request.db_scope == "shared":
+                system_prompt = (
+                    "You are a helpful assistant. "
+                    "IMPORTANT: The shared team database returned no results for this query. "
+                    "This may mean the shared RAG server is unreachable, or no relevant "
+                    "documents exist for this question. "
+                    "Do NOT answer from your own knowledge. Instead, tell the user that "
+                    "no relevant shared documents were found and suggest they check "
+                    "whether the correct documents have been uploaded to the shared database."
+                )
+            else:
+                system_prompt = (
+                    "You are a helpful coding assistant. "
+                    "Note: No relevant documents were found in your personal database."
+                )
             answer = await ollama_service.generate(
                 prompt=request.query,
                 system_prompt=system_prompt,
@@ -137,14 +164,14 @@ async def chat_query(
 
     response_time = int((time.time() - start_time) * 1000)
 
-    # ── Save assistant message (without feedback_record_id yet) ───────────────
+    # ── Save assistant message ────────────────────────────────────────────────
     assistant_message = Message(
         session_id=session.id,
         role="assistant",
         content=answer,
         sources=sources,
         response_time_ms=response_time,
-        db_scope=request.db_scope,          # ← NEW
+        db_scope=request.db_scope,
     )
     db.add(assistant_message)
     db.commit()
@@ -174,9 +201,6 @@ async def chat_query(
         db_scope=request.db_scope,
     )
 
-    # ── Write feedback_record_id + confidence back onto the message row ────────
-    # This is what makes confidence survive a page reload — it's stored in the
-    # messages table, so get_session_messages can return it directly.
     assistant_message.feedback_record_id = feedback_record.id
     assistant_message.confidence_score   = feedback_record.confidence_score
     assistant_message.confidence_label   = feedback_record.confidence_label
@@ -210,8 +234,9 @@ def submit_feedback(request, db, current_user):
         "record_id": str(record.id),
         "vote": request.vote,
         "updated_confidence": record.confidence_score,
-        "keywords_updated": record.query_keywords or [],   # ← ADD THIS
+        "keywords_updated": record.query_keywords or [],
     }
+
 
 # ── Session endpoints ─────────────────────────────────────────────────────────
 
@@ -262,11 +287,9 @@ def get_session_messages(
             "sources": msg.sources,
             "response_time_ms": msg.response_time_ms,
             "created_at": msg.created_at.isoformat(),
-            # ── NEW fields that fix the reload bug ────────────────────────────
             "db_scope": msg.db_scope or "local",
             "feedback_record_id": msg.feedback_record_id,
             "feedback_vote": msg.feedback_vote,
-            # Confidence is cached directly on the message row — no extra query
             "confidence": (
                 {
                     "score": msg.confidence_score,
